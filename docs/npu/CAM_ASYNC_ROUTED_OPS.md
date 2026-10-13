@@ -70,12 +70,14 @@ SOC_VERSION=910c AFD_BUILD_ASCEND_OPS=1 \
 ```
 
 For 910C, the registry selects A2E/E2A and all four routed-only operators.
-For 950, only A2E/E2A are selected, and the new PyTorch registrations are not
-compiled. `setup.py` passes the same `SOC_VERSION` to the ACLNN build and
-the extension CMake configuration (`AFD_SOC_VERSION`).
+For 950, the registry selects A2E/E2A plus the A8W8 variants of
+`grouped_matmul_layered`; the routed-only operators and their PyTorch
+registrations are not compiled for 950. `setup.py` passes the same
+`SOC_VERSION` to the ACLNN build and the extension CMake configuration
+(`AFD_SOC_VERSION`).
 
 `AFD_SKIP_ACLNN_BUILD=1` still requires an existing, matching AFD vendor
-package. An older package containing only A2E/E2A does not provide the new
+package. An older package containing only A2E/E2A does not provide the routed
 ACLNN symbols. Rebuild the complete operator package after changing this
 source or the SOC. The candidate lists CANN 8.5 / 9.0 and matching
 PyTorch/torch-npu 2.8 as its build environment; the integrated package still

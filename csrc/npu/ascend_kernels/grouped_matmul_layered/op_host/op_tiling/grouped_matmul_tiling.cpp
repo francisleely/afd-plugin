@@ -16,9 +16,13 @@
 
 #include <climits>
 #include "register/op_impl_registry.h"
+#include "arch35/grouped_weight_quant_batch_matmul_tiling.h"
+#include "arch35/grouped_no_quant_matmul_tiling.h"
 #include "tiling_base/tiling_base.h"
+#include "tiling_base/tiling_templates_registry.h"
 #include "err/ops_err.h"
 #include "../../op_kernel/grouped_matmul_tiling_key.h"
+using namespace Ops::Transformer::OpTiling;
 using namespace ge;
 using namespace AscendC;
 using namespace GroupedMatmul;
@@ -2141,13 +2145,36 @@ ASCENDC_EXTERN_C ge::graphStatus TilingGMM(gert::TilingContext* context) {
   ge::DataType weightDtype = w0Desc->GetDataType();
   auto compileInfoPtr = context->GetCompileInfo<GMMCompileInfo>();
   OP_CHECK_NULL_WITH_CONTEXT(context, compileInfoPtr);
-  // The DAV_3510 (ascend950) dispatch that upstream ops-transformer has here is
-  // not carried: it routes into the arch35 tiling templates, which ship with the
-  // ascend950 kernel entry (grouped_matmul_apt.cpp) that this port does not
-  // include, and which register themselves under the upstream operator name
-  // "GroupedMatmul" rather than this operator's name. The op is registered for
-  // ascend910_93 only, where npuArch is DAV_2201, so the branch could not be
-  // taken here regardless.
+  // ### PATCH START: Ascend 950 (A5 / DAV_3510) dispatch
+  // Restored from upstream ops-transformer. The arch35 tiling templates are
+  // reached through TilingRegistry here; they are registered under this
+  // operator's own name (see the registration patch in
+  // arch35/grouped_quant_matmul_tiling.cpp), because TilingRegistry resolves
+  // templates by context->GetNodeType() == "GroupedMatmulLayered".
+  if (compileInfoPtr->npuArch == NpuArch::DAV_3510) {
+      // full quant: double 8-bit or double 4-bit (A4W2 does not exist)
+      bool isQuant = xDType == ge::DT_FLOAT4_E2M1 || xDType == ge::DT_INT4 ||
+                     (ge::GetSizeByDataType(xDType) == 1 && ge::GetSizeByDataType(weightDtype) == 1);
+      if (isQuant) {
+          return TilingRegistry::GetInstance().DoTilingImpl(context);
+      } else if (xDType != weightDtype) {
+          GroupedWeightQuantBatchMatmulTiling groupedWeightQuantTiling;
+          OP_CHECK_IF(!groupedWeightQuantTiling.SetTiling(context),
+                      OPS_REPORT_VECTOR_INNER_ERR(context->GetNodeName(), "SetTiling failed."),
+                      return ge::GRAPH_FAILED);
+          return ge::GRAPH_SUCCESS;
+      }
+      bool isUnQuant = (xDType == ge::DT_FLOAT16 || xDType == ge::DT_BF16 || xDType == ge::DT_FLOAT) &&
+                       (xDType == weightDtype);
+      if (isUnQuant) {
+          GroupedNoQuantMatmulTiling groupedNoQuantMatmulTiling;
+          OP_CHECK_IF(!groupedNoQuantMatmulTiling.SetTiling(context),
+                      OPS_REPORT_VECTOR_INNER_ERR(context->GetNodeName(), "SetTiling failed."),
+                      return ge::GRAPH_FAILED);
+          return ge::GRAPH_SUCCESS;
+      }
+  }
+  // ### PATCH END: Ascend 950 (A5 / DAV_3510) dispatch
   GMMTiling tiling;
   if(xDType == ge::DT_INT8 && weightDtype == ge::DT_INT4) {     // A8W4 Tiling
     ge::graphStatus A8W4TilingResult = tiling.A8W4Tiling(context, compileInfoPtr);

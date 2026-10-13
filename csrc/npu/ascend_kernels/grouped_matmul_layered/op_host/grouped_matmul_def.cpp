@@ -118,6 +118,63 @@ public:
             .ExtendCfgInfo("coreType.value", "AiCore")
             .ExtendCfgInfo("aclnnSupport.value", "support_aclnn");
         this->AICore().AddConfig("ascend910_93", aicore_config);
+
+        // ### PATCH START: Ascend 950 (A5) AICore config
+        // The A5 kernel entry is a separate file: its template parameter list is
+        // the arch35 one (transB/transA/kernelType), not the 910_93 list, so
+        // `opFile.value` routes the generated kernel compile to
+        // grouped_matmul_layered_apt.cpp. The dtype columns are restricted to the
+        // A8W8 (x INT8 + weight INT8) set the A5 quant path implements: the
+        // A8W4 columns of the 910_93 config use the packed uint64 all_scale and
+        // need no antiquant_scale input, while the A5 antiquant path addresses
+        // weight/bias/antiquant_scale separately and is not registered here.
+        // A5 W8A8 wants a real per-channel scale (BF16 or FLOAT), the int32 bias
+        // and the bf16/fp16 output the arch35 quant kernels produce.
+        OpAICoreConfig a5_config;
+        a5_config.Input("x")
+            .ParamType(DYNAMIC)
+            .DataType({ge::DT_INT8, ge::DT_INT8, ge::DT_INT8, ge::DT_INT8, ge::DT_INT8})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        a5_config.Input("all_weight")
+            .ParamType(DYNAMIC)
+            .DataType({ge::DT_INT8, ge::DT_INT8, ge::DT_INT8, ge::DT_INT8, ge::DT_INT8})
+            .Format({ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND});
+        a5_config.Input("all_bias")
+            .ParamType(DYNAMIC)
+            .DataType({ge::DT_INT32, ge::DT_INT32, ge::DT_INT32, ge::DT_INT32, ge::DT_INT32})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        a5_config.Input("all_scale")
+            .ParamType(DYNAMIC)
+            .DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_UINT64})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        a5_config.Input("layer_index")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        a5_config.Input("group_list")
+            .ParamType(OPTIONAL)
+            .DataType({ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        a5_config.Input("per_token_scale")
+            .ParamType(OPTIONAL)
+            .DataType({ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        a5_config.Output("y")
+            .ParamType(DYNAMIC)
+            .DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_INT32})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        a5_config.DynamicCompileStaticFlag(true)
+            .DynamicFormatFlag(true)
+            .DynamicRankSupportFlag(true)
+            .DynamicShapeSupportFlag(true)
+            .NeedCheckSupportFlag(false)
+            .PrecisionReduceFlag(true)
+            .ExtendCfgInfo("prebuildPattern.value", "Opaque")
+            .ExtendCfgInfo("coreType.value", "AiCore")
+            .ExtendCfgInfo("aclnnSupport.value", "support_aclnn")
+            .ExtendCfgInfo("opFile.value", "grouped_matmul_layered_apt");
+        this->AICore().AddConfig("ascend950", a5_config);
+        // ### PATCH END: Ascend 950 (A5) AICore config
     }
 };
 

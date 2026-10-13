@@ -174,15 +174,22 @@ ge::graphStatus GroupedMatmulQuantChecker::CheckScenarioValidForShape(const gert
 {
     // only support for single/single/single Scenario
     auto xSecondTensorShape = context->GetDynamicInputShape(GMM_INDEX_IN_X, 1);
-    auto weightSecondTensorShape = context->GetDynamicInputShape(GMM_INDEX_IN_WEIGHT, 1);
     OP_CHECK_IF(IsNonEmpty(xSecondTensorShape),
                 OP_LOGE(context->GetNodeName(), "Only support single/single/single scenario for now, but the second \
 tensor of tensor list x is not empty."),
                 return ge::GRAPH_FAILED);
-    OP_CHECK_IF(IsNonEmpty(weightSecondTensorShape),
-                OP_LOGE(context->GetNodeName(), "Only support single/single/single scenario for now, but the second \
-tensor of tensor list weight is not empty."),
-                return ge::GRAPH_FAILED);
+    // ### PATCH START: layered weight list is the layer list
+    // Upstream asserts that the weight list holds a single tensor ("only support
+    // single/single/single"). The layered contract inverts that: all_weight is a
+    // per-layer list whose length is the layer count, and every element is one
+    // full-expert (e, k, n) tensor, so a second element is expected rather than
+    // rejected. The x list stays single (one merged activation), which is why the
+    // check above is kept. This mirrors the 910C path, whose checkers already
+    // treat the weight list length as the layer count and force the single-weight
+    // case (see CheckCaseSplitM / GetGroupSize in grouped_matmul_infershape.cpp).
+    // The expert count is validated against groupNum_ in CheckShapeValid, and
+    // CheckShapeForQuantParam validates each layer's element against groupNum_.
+    // ### PATCH END: layered weight list is the layer list
     // check split item value valid
     OP_CHECK_IF(gmmAttrs.splitItem != GMM_X_SEPARATED && gmmAttrs.splitItem != GMM_NO_SEPARATED,
                 OP_LOGE(context->GetNodeName(), "Invalid splitItem, which can only be one of 2/3, but it is [%ld].",

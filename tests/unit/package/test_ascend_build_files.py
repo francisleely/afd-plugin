@@ -278,7 +278,7 @@ def _run_select_ops(*args: str) -> subprocess.CompletedProcess[str]:
                 "grouped_matmul_layered",
             ],
         ),
-        ("ascend950", ["a2e", "e2a"]),
+        ("ascend950", ["a2e", "e2a", "grouped_matmul_layered"]),
     ],
 )
 @pytest.mark.parametrize("shmem", ["0", "1"])

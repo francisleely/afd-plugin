@@ -1,11 +1,28 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""910C regression for a device-produced layered GMM group list.
+"""Regression for a device-produced layered GMM group list, on 910C and A5.
 
 Run after building the Ascend extension::
 
     SOC_VERSION=910c AFD_RUN_ASCEND_OP_RUNTIME=1 \
         pytest tests/npu/test_gmm_layered_device_group_list.py
+    SOC_VERSION=950 AFD_RUN_ASCEND_OP_RUNTIME=1 \
+        pytest tests/npu/test_gmm_layered_device_group_list.py
+
+The build SOC selects which scenarios are registered, so the test asserts
+against exactly what the package under test can run:
+
+* **910C** registers A8W4 and A8W8 for both ND and NZ weights. Both scenarios
+  run.
+* **A5** registers only the A8W8 columns (see the ``a5_config`` block in
+  ``op_host/grouped_matmul_def.cpp``): the A5 A8W4 path addresses weight, bias
+  and ``antiquant_scale`` as separate tensors, while the layered contract feeds
+  a packed uint64 ``all_scale``, so A8W4 is not callable through the layered
+  interface yet. ``a8w4`` therefore skips on A5 with that reason rather than
+  failing. This mirrors what the operator actually builds.
+
+The target is detected from the device name; set ``AFD_GMM_SOC`` to override
+(e.g. ``AFD_GMM_SOC=950``) when the device name is ambiguous.
 
 Set ``AFD_GMM_PROFILE_TRACE=/path/to/trace`` to export one Chrome trace per
 group-list representation. Only the layered operator invocation is profiled;
@@ -26,8 +43,13 @@ Both quantization scenarios are covered, selected by ``scenario``:
   must be passed explicitly: the wrapper's derivation keeps the activation dtype
   for an int8 weight, which would ask for an int8 y, a different def column.
 
-A8W8 is the scenario that reaches ``GMMTiling::Init`` - the A8W4 MSD branch
-returns before it - so it is the one that exercises the layer_index validation.
+The bf16 per-channel scale of ``a8w8`` is the dtype both targets register, so
+the same inputs drive 910C and A5.
+
+On 910C, A8W8 is the scenario that reaches ``GMMTiling::Init`` - the A8W4 MSD
+branch returns before it - so it is the one that exercises the layer_index
+validation. On A5 the equivalent gate is ``GroupedQbmmTiling`` reached through
+``TilingRegistry``; both share the ``CheckLayerIndex`` contract.
 """
 
 from __future__ import annotations
@@ -51,6 +73,18 @@ _COUNT_BASE = 20
 _COUNT_STEP = 8
 _RTOL = 0.02
 _ATOL = 0.02
+
+# Scenarios the A5 (Ascend 950) def registers. A8W4 is 910C-only until the A5
+# antiquant input representation is wired through the layered interface.
+_A5_SCENARIOS = ("a8w8",)
+
+
+def _is_ascend950(torch_npu) -> bool:
+    """Return True when the selected device is an Ascend 950 (A5) die."""
+    override = os.environ.get("AFD_GMM_SOC")
+    if override:
+        return "950" in override
+    return "950" in torch_npu.npu.get_device_name(0)
 
 
 def _build_a8w4(torch, torch_npu, generator):
@@ -122,7 +156,7 @@ def _reference_scale(scale, scenario: str):
 @pytest.mark.parametrize("group_list_type", [0, 1])
 def test_device_group_list_matches_builtin(group_list_type: int, scenario: str) -> None:
     if os.environ.get("AFD_RUN_ASCEND_OP_RUNTIME") != "1":
-        pytest.skip("requires opt-in 910C runtime")
+        pytest.skip("requires opt-in NPU runtime")
 
     torch = pytest.importorskip("torch")
     torch_npu = pytest.importorskip("torch_npu")
@@ -132,6 +166,12 @@ def test_device_group_list_matches_builtin(group_list_type: int, scenario: str) 
     torch.npu.set_device(int(os.environ.get("LOCAL_RANK", "0")))
     torch.npu.config.allow_internal_format = True
     generator = torch.Generator(device="cpu").manual_seed(381)
+
+    if _is_ascend950(torch_npu) and scenario not in _A5_SCENARIOS:
+        pytest.skip(
+            f"{scenario} is not registered for ascend950; the A5 package only "
+            f"registers {_A5_SCENARIOS}"
+        )
 
     x, weights, scales, biases = (
         _build_a8w4(torch, torch_npu, generator)

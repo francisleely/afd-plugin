@@ -30,6 +30,14 @@
 #include "opdev/make_op_executor.h"
 
 #include "grouped_matmul_util.h"
+// ### PATCH START: Ascend 950 (A5) validation classes
+// Ported from ops-transformer `gmm/grouped_matmul/op_host/op_api`. The DAV_3510
+// branches below previously refused every A5 call outright; these are the
+// upstream validators they need.
+#include "grouped_matmul_950_checker.h"
+#include "grouped_matmul_weight_quant_950_checker.h"
+#include "grouped_matmul_no_quant_950_checker.h"
+// ### PATCH END: Ascend 950 (A5) validation classes
 
 using namespace op;
 
@@ -1306,13 +1314,15 @@ static aclnnStatus CheckFunctionParams(const gmm::GroupedMatmulParams &gmmParams
                  " and the quant mode is either pertoken-perchannel or pertensor-perchannel; "
                  " activation is not supported in other scenarios;"
                  " activeType[%ld] is not supported.", gmmParams.activeType);
-      OP_LOGE(ACLNN_ERR_PARAM_INVALID, "DAV_3510 (ascend950) paths are not shipped in the cam_async layered build.");
-      return ACLNN_ERR_PARAM_INVALID;
+      // ### PATCH START: A5 quant validation
+      return gmm::AclnnGroupedMatmulDAV3510Checker<aclTensorList>(gmmParams).CheckGroupedMatmulDAV3510();
+      // ### PATCH END: A5 quant validation
     } else if (IsWeightQuant(gmmParams.xDtype, weightDtype)) {
       CHECK_COND(isNoActivation, ACLNN_ERR_PARAM_INVALID, "Activation is not supported in weight quant mode now."
                  " activeType[%ld] is not supported.", gmmParams.activeType);
-      OP_LOGE(ACLNN_ERR_PARAM_INVALID, "DAV_3510 (ascend950) paths are not shipped in the cam_async layered build.");
-      return ACLNN_ERR_PARAM_INVALID;
+      // ### PATCH START: A5 weight-quant validation
+      return gmm::AclnnGroupedMatmulWeightQuantDAV3510Checker(gmmParams).CheckGroupedMatmulWeightQuantDAV3510();
+      // ### PATCH END: A5 weight-quant validation
     } else {
       CHECK_COND(isNoActivation, ACLNN_ERR_PARAM_INVALID, "When input is No-Quant, activation is not supported on this platforms."
  	                  " activeType[%ld] is not supported.", gmmParams.activeType);
@@ -1739,8 +1749,9 @@ static aclnnStatus CheckGroupSize(const gmm::GroupedMatmulParams &gmmParams) {
     // only no quant support group size upper 128 on DAV3510
     if ((gmmParams.xDtype == DataType::DT_BF16 || gmmParams.xDtype == DataType::DT_FLOAT16 ||
        gmmParams.xDtype == DataType::DT_FLOAT) && gmmParams.xDtype == (*gmmParams.weight)[0]->GetDataType()) {
-      OP_LOGE(ACLNN_ERR_PARAM_INVALID, "DAV_3510 (ascend950) paths are not shipped in the cam_async layered build.");
-      return ACLNN_ERR_PARAM_INVALID;
+      // ### PATCH START: A5 no-quant group-size validation
+      return gmm::AclnnGroupedMatmulNoQuantDAV3510Checker(gmmParams).CheckGroupedMatmulGroupSizeNoQuantDAV3510();
+      // ### PATCH END: A5 no-quant group-size validation
     }
   }
   CHECK_COND(CheckTensorListLength(gmmParams.x) == ACLNN_SUCCESS, ACLNN_ERR_PARAM_INVALID,
@@ -2073,7 +2084,14 @@ static aclnnStatus CheckOutputShape(const aclTensorList* l0Res, const aclTensorL
 
 static bool IsPerTileQuantMode(gmm::GroupedMatmulParams &params)
 {
-    return false; /* DAV_3510 (ascend950) per-tile mode not shipped in the cam_async layered build */
+    // ### PATCH START: A5 per-tile quant mode
+    if (op::GetCurrentPlatformInfo().GetCurNpuArch() == NpuArch::DAV_3510 &&
+        IsQuant(params.xDtype, (*params.weight)[0]->GetDataType())) {
+        gmm::AclnnGroupedMatmulDAV3510Checker<aclTensorList> checker(params);
+        return checker.IsPerTileQuantMode();
+    }
+    // ### PATCH END: A5 per-tile quant mode
+    return false;
 }
 
 static void SetTransposedScaleTensorListContiguous(gmm::GroupedMatmulParams &params, aclOpExecutor *executorPtr,

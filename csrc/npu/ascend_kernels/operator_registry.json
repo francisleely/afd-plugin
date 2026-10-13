@@ -13,7 +13,8 @@
     ],
     "ascend950": [
       "a2e",
-      "e2a"
+      "e2a",
+      "grouped_matmul_layered"
     ]
   },
   "operator_meta": {

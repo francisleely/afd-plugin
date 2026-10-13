@@ -68,8 +68,9 @@ Common environment variables:
 - `TORCH_NPU_PATH`: optional path to the `torch_npu` package.
 - `SOC_VERSION`: `910c`, `ascend910_93*`, and `ascend910_9392` build
   A2E/E2A plus the four routed-only CAM operators for Ascend 910C.
-  `950`, `ascend950*`, and `Ascend950*` build only A2E/E2A for Atlas A5
-  (`ascend950`); the new CAM PyTorch registrations are also excluded.
+  `950`, `ascend950*`, and `Ascend950*` build A2E/E2A and the A8W8
+  variants of `grouped_matmul_layered` for Atlas A5 (`ascend950`); the CAM
+  PyTorch registrations and the other layered operators are excluded.
 - `MAX_JOBS`: number of parallel CMake build jobs for the PyTorch extension.
 - `AFD_BUILD_JOBS`: number of parallel CMake build jobs for the ACLNN operator
   project. Defaults to `8`.

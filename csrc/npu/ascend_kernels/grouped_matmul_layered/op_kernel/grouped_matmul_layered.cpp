@@ -13,13 +13,17 @@
  * \brief
  */
 #include "grouped_matmul_utils.h"
+
+#include "kernel_operator.h"
+// The whole 910_93 implementation is arch-guarded: on Ascend 950
+// (__CCE_AICORE__ == 310) this translation unit compiles to nothing and the
+// A5 implementation in grouped_matmul_layered_apt.cpp provides the entry.
+#if (defined(__CCE_AICORE__) && __CCE_AICORE__ == 220) || (defined(__NPU_ARCH__) && (__NPU_ARCH__ == 3003 || __NPU_ARCH__ == 3113))
+
 #include "grouped_matmul_antiquant.h"
 #include "grouped_matmul_vector.h"
 #include "grouped_matmul_tiling_key.h"
 #include "grouped_matmul.h"
-
-#include "kernel_operator.h"
-#if (defined(__CCE_AICORE__) && __CCE_AICORE__ == 220) || (defined(__NPU_ARCH__) && (__NPU_ARCH__ == 3003 || __NPU_ARCH__ == 3113))
 
 #include "grouped_matmul_antiquant_a16w8_msd.h"
 #include "grouped_matmul_antiquant_a8w4_msd_pre.h"
@@ -34,7 +38,6 @@
 #include "a16w4_msd/grouped_matmul_weight_quant_a16w4_msd_controller.h"
 #ifndef __CCE_KT_TEST__
 #include "grouped_matmul_fixaxismove_interface.cpp"
-#endif
 #endif
 
 using namespace AscendC;
@@ -561,3 +564,5 @@ __global__ __aicore__ void grouped_matmul_layered(GM_ADDR x, GM_ADDR weight, GM_
 #endif
 #endif
 }
+
+#endif // 910_93 (DAV_2201) implementation
